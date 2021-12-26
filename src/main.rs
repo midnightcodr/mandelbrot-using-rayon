@@ -1,6 +1,7 @@
 use image::png::PNGEncoder;
 use image::ColorType;
 use num::Complex;
+use rayon::prelude::*;
 use std::env;
 use std::fs::File;
 use std::str::FromStr;
@@ -79,24 +80,6 @@ fn test_pixel_to_point() {
     );
 }
 
-fn render(
-    pixels: &mut [u8],
-    bounds: (usize, usize),
-    upper_left: Complex<f64>,
-    lower_right: Complex<f64>,
-) {
-    assert!(pixels.len() == bounds.0 * bounds.1);
-    for row in 0..bounds.1 {
-        for column in 0..bounds.0 {
-            let point = pixel_to_point(bounds, (column, row), upper_left, lower_right);
-            pixels[row * bounds.0 + column] = match escape_time(point, 255) {
-                None => 0,
-                Some(count) => 255 - count as u8,
-            };
-        }
-    }
-}
-
 fn write_image(
     filename: &str,
     pixels: &[u8],
@@ -124,25 +107,16 @@ fn main() {
     let upper_left = parse_complex(&args[3]).expect("error parsing upper left");
     let lower_right = parse_complex(&args[4]).expect("error parsing lower right");
     let mut pixels = vec![0; bounds.0 * bounds.1];
-    // render(&mut pixels, bounds, upper_left, lower_right);
-    let threads = 8;
-    let rows_per_band = bounds.1 / threads + 1;
-    {
-        let bands: Vec<&mut [u8]> = pixels.chunks_mut(rows_per_band * bounds.0).collect();
-        crossbeam::scope(|spawner| {
-            for (i, band) in bands.into_iter().enumerate() {
-                let top = rows_per_band * i;
-                let height = band.len() / bounds.0;
-                let band_bounds = (bounds.0, height);
-                let band_upper_left = pixel_to_point(bounds, (0, top), upper_left, lower_right);
-                let band_lower_right =
-                    pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
-                spawner.spawn(move |_| {
-                    render(band, band_bounds, band_upper_left, band_lower_right);
-                });
-            }
-        })
-        .unwrap();
-    }
+    pixels
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(index, value)| {
+            let (row, col) = (index / bounds.0, index % bounds.0);
+            let point = pixel_to_point(bounds, (col, row), upper_left, lower_right);
+            *value = match escape_time(point, 255) {
+                None => 0,
+                Some(count) => 255 - count as u8,
+            };
+        });
     write_image(&args[1], &pixels, bounds).expect("error writing PNG file");
 }
