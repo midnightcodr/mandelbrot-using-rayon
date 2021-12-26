@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use std::env;
 use std::fs::File;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+// use std::sync::{Arc, Mutex};
 
 fn escape_time(c: Complex<f64>, limit: usize) -> Option<usize> {
     let mut z = Complex { re: 0.0, im: 0.0 };
@@ -125,21 +125,17 @@ fn main() {
     let bounds = parse_pair::<usize>(&args[2], 'x').expect("error parsing image dimensions");
     let upper_left = parse_complex(&args[3]).expect("error parsing upper left");
     let lower_right = parse_complex(&args[4]).expect("error parsing lower right");
-    // let mut pixels = vec![0; bounds.0 * bounds.1];
-    let pixels = Arc::new(Mutex::new(vec![0; bounds.0 * bounds.1]));
-    // let threads = 8;
-    // let rows_per_band = bounds.1 / threads + 1;
-    (0..bounds.1)
-        .into_par_iter()
-        .flat_map_iter(|row| (0..bounds.0).map(move |col| (row, col)))
-        .for_each(|(row, col)| {
+    let mut pixels = vec![0; bounds.0 * bounds.1];
+    pixels
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(index, value)| {
+            let (row, col) = (index / bounds.1, index % bounds.0);
             let point = pixel_to_point(bounds, (col, row), upper_left, lower_right);
-            let mut pixel = pixels.lock().unwrap();
-            pixel[row * bounds.0 + col] = match escape_time(point, 255) {
+            *value = match escape_time(point, 255) {
                 None => 0,
                 Some(count) => 255 - count as u8,
             };
         });
-    let pixels = pixels.lock().unwrap();
     write_image(&args[1], &pixels, bounds).expect("error writing PNG file");
 }
